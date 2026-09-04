@@ -109,7 +109,7 @@ async function downloadVideo(videoUrl) {
   try {
     const response = await axios.get(videoUrl, {
       responseType: 'arraybuffer',
-      timeout: 120000,
+      timeout: 150000,
       headers: { 'User-Agent': UA },
     });
     return Buffer.from(response.data);
@@ -146,7 +146,7 @@ async function enhance(apiKey, filePath, noise) {
 
   const r = await axios.post(`${API}/v1/video/enhance/`, fd, {
     headers: { 'User-Agent': UA, 'Authorization': `Bearer ${apiKey}`, ...fd.getHeaders() },
-    timeout: 300000,
+    timeout: 400000,
     maxBodyLength: Infinity,
     validateStatus: () => true,
   });
