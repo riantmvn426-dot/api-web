@@ -104,26 +104,71 @@ async function getSessionCached() {
   return sessionCache;
 }
 
+// ── mapping Content-Type → ekstensi (dipakai, bukan nebak dari URL) ──────────
+const MIME_TO_EXT = {
+  'video/mp4':        '.mp4',
+  'video/quicktime':  '.mov',
+  'video/webm':       '.webm',
+  'video/x-matroska': '.mkv',
+  'video/3gpp':       '.3gp',
+  'video/x-msvideo':  '.avi',
+  'video/mpeg':       '.mpeg',
+  'video/ogg':        '.ogv',
+};
+
 // ── download video sumber (dari url yang dikirim user) ───────────────────────
+// Deteksi berdasarkan isi respons (Content-Type / magic bytes), bukan dari
+// nama/ekstensi di URL, supaya link slug tanpa ".mp4" tetap bisa diproses
+// selama isinya memang video.
 async function downloadVideo(videoUrl) {
+  let response;
   try {
-    const response = await axios.get(videoUrl, {
+    response = await axios.get(videoUrl, {
       responseType: 'arraybuffer',
       timeout: 120000,
-      headers: { 'User-Agent': UA },
+      maxRedirects: 10, // ikutin redirect (banyak share-link/slug redirect ke CDN asli)
+      headers: {
+        'User-Agent': UA,
+        // sebagian CDN video butuh Accept header biar gak dibalikin HTML
+        'Accept': 'video/*,application/octet-stream;q=0.9,*/*;q=0.8',
+      },
     });
-    return Buffer.from(response.data);
   } catch (e) {
     throw new ValidationError(`Gagal download video: ${e.message}`, 400);
   }
+
+  const buffer = Buffer.from(response.data);
+  let contentType = String(response.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+
+  // Fallback: kalau server gak kasih Content-Type yang jelas, cek magic bytes
+  // umum untuk container video (mp4/mov = 'ftyp' di offset 4, webm/mkv = EBML header).
+  if (!contentType.startsWith('video/')) {
+    const head = buffer.slice(0, 12).toString('hex');
+    const ftyp = buffer.slice(4, 8).toString('ascii');
+    if (ftyp === 'ftyp') {
+      contentType = 'video/mp4';
+    } else if (head.startsWith('1a45dfa3')) {
+      contentType = 'video/webm';
+    }
+  }
+
+  if (!contentType.startsWith('video/')) {
+    throw new ValidationError(
+      'URL tidak mengarah ke file video langsung (kemungkinan halaman/slug, bukan file video). Pastikan URL adalah direct link ke video.',
+      400
+    );
+  }
+
+  const ext = MIME_TO_EXT[contentType] || '.mp4';
+  return { buffer, contentType, ext };
 }
 
 // ── 3. upload-temp + 4. enhance ───────────────────────────────────────────────
-async function uploadTemp(apiKey, filePath) {
+async function uploadTemp(apiKey, filePath, contentType) {
   const fd = new FormData();
   fd.append('file', fs.createReadStream(filePath), {
     filename: path.basename(filePath),
-    contentType: 'video/mp4',
+    contentType: contentType || 'video/mp4',
   });
   const up = await axios.post(`${API}/v1/upload-temp/`, fd, {
     headers: { 'User-Agent': UA, 'Authorization': `Bearer ${apiKey}`, ...fd.getHeaders() },
@@ -136,11 +181,11 @@ async function uploadTemp(apiKey, filePath) {
   return up.data;
 }
 
-async function enhance(apiKey, filePath, noise) {
+async function enhance(apiKey, filePath, noise, contentType) {
   const fd = new FormData();
   fd.append('file', fs.createReadStream(filePath), {
     filename: path.basename(filePath),
-    contentType: 'video/mp4',
+    contentType: contentType || 'video/mp4',
   });
   if (noise && NOISE_LEVELS.includes(noise)) fd.append('noise', noise);
 
@@ -157,7 +202,7 @@ async function enhance(apiKey, filePath, noise) {
 }
 
 async function enhanceVideo(videoUrl, noise) {
-  const videoBuffer = await downloadVideo(videoUrl);
+  const { buffer: videoBuffer, contentType, ext } = await downloadVideo(videoUrl);
   if (!videoBuffer || videoBuffer.length === 0) {
     throw new ValidationError('Gagal download video dari URL.', 400);
   }
@@ -165,15 +210,13 @@ async function enhanceVideo(videoUrl, noise) {
     throw new ValidationError('Ukuran video maksimal 100MB.', 400);
   }
 
-  let ext = '.mp4';
-  try { ext = path.extname(new URL(videoUrl).pathname) || '.mp4'; } catch (e) {}
   const tmpFile = path.join('/tmp', `enhance-${Date.now()}${ext}`);
   fs.writeFileSync(tmpFile, videoBuffer);
 
   try {
     const session = await getSessionCached();
-    const uploadInfo = await uploadTemp(session.apiKey, tmpFile);
-    const result = await enhance(session.apiKey, tmpFile, noise);
+    const uploadInfo = await uploadTemp(session.apiKey, tmpFile, contentType);
+    const result = await enhance(session.apiKey, tmpFile, noise, contentType);
 
     return {
       video_url:    result.video_url || result.url,
