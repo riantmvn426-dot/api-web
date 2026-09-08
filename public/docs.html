@@ -688,7 +688,7 @@ function catColor(cat) { return CAT_COLORS[(cat || '').toUpperCase()] || '#9ca3a
 function scrollToSec(id) { var el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToCard(eid) { var el = document.getElementById('c-' + eid); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
-fetch('/routes/endpoints').then(function(r) {
+fetch('/api/endpoints').then(function(r) {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }).then(function(data) {
@@ -732,7 +732,7 @@ fetch('/routes/endpoints').then(function(r) {
     '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
     '<p>Gagal memuat endpoint</p><p class="err-msg">' + esc(err.message) + '</p>' +
     '<p style="margin-top:.6rem;font-size:.67rem;color:var(--t3)">Pastikan server aktif dan ' +
-    '<code style="font-family:var(--mono)">/routes/endpoints</code> tersedia.</p></div>';
+    '<code style="font-family:var(--mono)">/api/endpoints</code> tersedia.</p></div>';
 });
 </script>
 </body>
