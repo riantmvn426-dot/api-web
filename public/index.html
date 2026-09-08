@@ -115,7 +115,7 @@
   </main>
 
   <script>
-    fetch('/routes/endpoints')
+    fetch('/api/endpoints')
       .then(r => r.json())
       .then(d => { if (d.ok) document.getElementById('ep-count').textContent = d.total; })
       .catch(() => {});
